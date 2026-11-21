@@ -1,0 +1,89 @@
+# Fork-only: deploy integration previews to Cloudflare Pages via Direct Upload.
+# - push to selfhost   -> production deployment of the Pages project
+# - PR targeting selfhost (same-repo branches) -> per-branch preview deployment
+# Not contributed upstream; upstream pages.yaml is disabled on this fork.
+name: Selfhost Preview
+
+on:
+  push:
+    branches: [selfhost]
+  pull_request:
+    branches: [selfhost]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PAGES_PROJECT: nezha-docs
+
+jobs:
+  deploy:
+    name: Deploy Cloudflare Pages preview
+    # Secrets are not available to PRs from other forks; skip those.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Check Cloudflare credentials
+        id: creds
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not configured; skipping deployment."
+          fi
+
+      - if: steps.creds.outputs.ready == 'true'
+        uses: actions/checkout@v7
+
+      - if: steps.creds.outputs.ready == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - if: steps.creds.outputs.ready == 'true'
+        name: Build
+        run: |
+          npm ci
+          npm run build
+
+      - if: steps.creds.outputs.ready == 'true'
+        id: deploy
+        name: Deploy
+        uses: cloudflare/wrangler-action@v4
+        env:
+          # PRs check out a merge commit; deploy under the PR head branch/sha.
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: >-
+            pages deploy docs/.vitepress/dist
+            --project-name=${{ env.PAGES_PROJECT }}
+            --branch=${{ env.BRANCH }}
+            --commit-hash=${{ env.SHA }}
+
+      - if: steps.creds.outputs.ready == 'true'
+        name: Summary
+        env:
+          URL: ${{ steps.deploy.outputs.deployment-url }}
+          ALIAS: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+        run: |
+          {
+            echo "### Cloudflare Pages preview"
+            echo "- Deployment: $URL"
+            echo "- Branch alias: ${ALIAS:-n/a}"
+          } >> "$GITHUB_STEP_SUMMARY"
