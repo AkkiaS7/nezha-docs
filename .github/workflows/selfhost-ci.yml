@@ -1,12 +1,12 @@
-# Fork-only CI for the selfhost branch (not contributed upstream).
+# Fork-only CI for the selfhost and integration branches (not contributed upstream).
 # Upstream pages.yaml deploys to GitHub Pages and is disabled on this fork.
 name: Selfhost CI
 
 on:
   push:
-    branches: [selfhost]
+    branches: [selfhost, integration]
   pull_request:
-    branches: [selfhost]
+    branches: [selfhost, integration]
 
 permissions:
   contents: read

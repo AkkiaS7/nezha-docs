@@ -1,6 +1,7 @@
 # Fork-only: deploy integration previews to Cloudflare Pages via Direct Upload.
-# - push to selfhost   -> production deployment of the Pages project (alias "selfhost")
-# - PR targeting selfhost (same-repo branches) -> preview under stable alias "pr-<number>"
+# - push to selfhost    -> production deployment of the Pages project (alias "selfhost")
+# - push to integration -> preview under stable alias "integration" (follows the integration branch)
+# - PR targeting selfhost or integration (same-repo branches) -> preview under stable alias "pr-<number>"
 # Not contributed upstream; upstream pages.yaml is disabled on this fork.
 #
 # GitHub Deployment statuses are public on this repo. They are created by this
@@ -11,9 +12,9 @@ name: Selfhost Preview
 
 on:
   push:
-    branches: [selfhost]
+    branches: [selfhost, integration]
   pull_request:
-    branches: [selfhost]
+    branches: [selfhost, integration]
 
 permissions:
   contents: read
@@ -25,7 +26,7 @@ concurrency:
 env:
   PAGES_PROJECT: nezha-docs
   # Stable Cloudflare alias: PR number for PRs (branch names may collide after
-  # Cloudflare normalization), "selfhost" for the production branch.
+  # Cloudflare normalization), the branch name ("selfhost" / "integration") for pushes.
   PREVIEW_BRANCH: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
   DEPLOY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -73,7 +74,7 @@ jobs:
         name: Create GitHub deployment
         env:
           GH_TOKEN: ${{ github.token }}
-          IS_PROD: ${{ github.event_name == 'push' }}
+          IS_PROD: ${{ github.event_name == 'push' && github.ref_name == 'selfhost' }}
         run: |
           id=$(jq -n \
               --arg ref "$DEPLOY_SHA" \
