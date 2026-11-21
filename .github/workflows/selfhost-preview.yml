@@ -111,7 +111,9 @@ jobs:
         run: |
           url="${ALIAS_URL:-$DEPLOY_URL}"
           # Only publish pages.dev URLs; never anything else from wrangler output.
-          printf '%s' "$url" | grep -Eq '^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.pages\.dev/?$' || url=""
+          # Anchored match on the whole value (grep would match line by line).
+          pattern='^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.pages\.dev/?$'
+          [[ "$url" =~ $pattern ]] || url=""
           if [ "$OUTCOME" = "success" ] && [ -n "$url" ]; then
             gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
               -f state=success -f environment_url="$url" -f log_url="$RUN_URL" --silent
