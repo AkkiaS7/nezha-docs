@@ -1,0 +1,31 @@
+# Fork-only CI for the selfhost branch (not contributed upstream).
+# Upstream pages.yaml deploys to GitHub Pages and is disabled on this fork.
+name: Selfhost CI
+
+on:
+  push:
+    branches: [selfhost]
+  pull_request:
+    branches: [selfhost]
+
+permissions:
+  contents: read
+
+jobs:
+  docs-build:
+    name: Docs build and audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # build + SEO audit + MCP feature audit
+      - name: Build and audit
+        run: npm test
