@@ -1,7 +1,12 @@
 # Fork-only: deploy integration previews to Cloudflare Pages via Direct Upload.
-# - push to selfhost   -> production deployment of the Pages project
-# - PR targeting selfhost (same-repo branches) -> per-branch preview deployment
+# - push to selfhost   -> production deployment of the Pages project (alias "selfhost")
+# - PR targeting selfhost (same-repo branches) -> preview under stable alias "pr-<number>"
 # Not contributed upstream; upstream pages.yaml is disabled on this fork.
+#
+# GitHub Deployment statuses are public on this repo. They are created by this
+# workflow (not by wrangler-action's gitHubToken, which embeds the Cloudflare
+# account ID and deployment ID in log_url) and only carry the preview URL and
+# the Actions run URL.
 name: Selfhost Preview
 
 on:
@@ -14,11 +19,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: preview-${{ github.head_ref || github.ref_name }}
+  group: preview-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
   cancel-in-progress: true
 
 env:
   PAGES_PROJECT: nezha-docs
+  # Stable Cloudflare alias: PR number for PRs (branch names may collide after
+  # Cloudflare normalization), "selfhost" for the production branch.
+  PREVIEW_BRANCH: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+  DEPLOY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
   deploy:
@@ -59,31 +69,60 @@ jobs:
           npm run build
 
       - if: steps.creds.outputs.ready == 'true'
+        id: gh_deployment
+        name: Create GitHub deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IS_PROD: ${{ github.event_name == 'push' }}
+        run: |
+          id=$(jq -n \
+              --arg ref "$DEPLOY_SHA" \
+              --arg env "preview/$PREVIEW_BRANCH" \
+              --argjson prod "$IS_PROD" \
+              '{ref: $ref, environment: $env, auto_merge: false, required_contexts: [],
+                production_environment: $prod, transient_environment: ($prod | not),
+                description: "Cloudflare Pages preview"}' \
+            | gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=in_progress -f log_url="$RUN_URL" --silent
+
+      - if: steps.creds.outputs.ready == 'true'
         id: deploy
         name: Deploy
         uses: cloudflare/wrangler-action@v4
-        env:
-          # PRs check out a merge commit; deploy under the PR head branch/sha.
-          BRANCH: ${{ github.head_ref || github.ref_name }}
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           command: >-
             pages deploy docs/.vitepress/dist
             --project-name=${{ env.PAGES_PROJECT }}
-            --branch=${{ env.BRANCH }}
-            --commit-hash=${{ env.SHA }}
+            --branch=${{ env.PREVIEW_BRANCH }}
+            --commit-hash=${{ env.DEPLOY_SHA }}
 
-      - if: steps.creds.outputs.ready == 'true'
-        name: Summary
+      - if: always() && steps.gh_deployment.outputs.id
+        name: Update GitHub deployment status
         env:
-          URL: ${{ steps.deploy.outputs.deployment-url }}
-          ALIAS: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ steps.gh_deployment.outputs.id }}
+          OUTCOME: ${{ steps.deploy.outcome }}
+          ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
         run: |
-          {
-            echo "### Cloudflare Pages preview"
-            echo "- Deployment: $URL"
-            echo "- Branch alias: ${ALIAS:-n/a}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          url="${ALIAS_URL:-$DEPLOY_URL}"
+          # Only publish pages.dev URLs; never anything else from wrangler output.
+          printf '%s' "$url" | grep -Eq '^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.pages\.dev/?$' || url=""
+          if [ "$OUTCOME" = "success" ] && [ -n "$url" ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+              -f state=success -f environment_url="$url" -f log_url="$RUN_URL" --silent
+            {
+              echo "### Cloudflare Pages preview"
+              echo "- Preview: $url"
+              echo "- Commit: $DEPLOY_SHA"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+              -f state=failure -f log_url="$RUN_URL" --silent
+            [ "$OUTCOME" = "success" ] && echo "::error::Deploy succeeded but no pages.dev URL was returned." && exit 1
+            exit 0
+          fi
