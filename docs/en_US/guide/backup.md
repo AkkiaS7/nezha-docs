@@ -179,7 +179,7 @@ v2.8.0 has a fixed backup size limit of 256 MiB. A backup whose file or unpacked
 
 ## Backup size limit
 
-To keep oversized or crafted files from filling the disk during a restore, backups have a size limit, **1 GiB** by default. It applies to both the backup file itself and the total unpacked size of its contents (the database and `config.yaml`). A backup that would exceed the limit fails, so no backup is produced that could not be restored; downloads, uploads and restores refuse files over the limit.
+To keep oversized or crafted files from filling the disk during a restore, backups have a size limit, **1 GiB** by default. It applies to both the backup file itself and the total unpacked size of all its entries. The entries are mostly the database and `config.yaml`, plus a small manifest and checksum entry, which count as well. A backup that would exceed the limit fails, so no backup is produced that could not be restored; downloads, uploads and restores refuse files over the limit.
 
 For a larger database, raise the limit with the environment variable `NZ_BACKUP_MAX_SIZE_MB`:
 
@@ -203,18 +203,20 @@ When the limit is exceeded, the error reads like `backup file exceeds the size l
 
 ### Disk space
 
-Backups and restores write temporary files below the data directory. Before writing, the dashboard checks the free space of the disk that holds the data directory and always keeps 256 MiB free for the running database:
+Backups and restores write temporary files below the data directory. The dashboard checks the free space of the disk that holds the data directory and tries to keep 256 MiB free for the running database:
 
-- A backup holds a database snapshot and the encrypted backup file, so it needs free space of at least twice the database size plus 256 MiB.
-- A restore holds the downloaded or uploaded backup file and the unpacked data. When backups are configured, applying a restore first creates a pre-restore backup as well.
+- Before a backup starts, free space must be at least twice the database size plus 256 MiB (for the database snapshot and the encrypted backup file).
+- A restore holds the downloaded or uploaded backup file and the unpacked data. When backups are configured, applying a restore first creates a pre-restore backup, which has to meet the same backup threshold.
+- Writing the backup file, downloads, uploads and unpacking are streamed, and the free space is checked again in chunks while writing. When space runs short, an operation can fail before it starts or stop partway through; either way it removes its temporary files and reports an error like `not enough free disk space in the data directory: … MiB needed, … MiB free`.
+- If the file system does not report its free space, the dashboard logs this and continues without the check.
 
-Keep free space of at least 2–3 times the database size on the disk that holds the data directory. When space runs short, the operation fails before writing and removes its temporary files, with an error like `not enough free disk space in the data directory: … MiB needed, … MiB free`.
+Keep free space of at least 3 times the database size, and no less than twice the database size plus 256 MiB, on the disk that holds the data directory, so both backups and restores have room.
 
 ### Reverse proxies
 
 When the dashboard is behind a reverse proxy, restore uploads and backup checks go through the proxy:
 
-- **Upload size:** the proxy must accept request bodies at least as large as the backup file, which can reach the limit. Nginx allows only 1 MiB by default; raise it in the dashboard's `location`, for example `client_max_body_size 1100m;` for a 1 GiB limit (Caddy does not limit request bodies by default).
+- **Upload size:** the proxy limits the whole upload request, which carries the multipart boundaries and form fields in addition to the backup file, so its body limit must be larger than the file. Set it to the backup size limit plus at least 1 MiB (the dashboard itself accepts the limit plus 1 MiB); a limit equal to the file size leads to 413 errors. Nginx allows only 1 MiB by default; raise it in the dashboard's `location`, for example `client_max_body_size 1100m;` for a 1 GiB limit (Caddy does not limit request bodies by default).
 - **Timeouts:** a backup check downloads, decrypts and checks the database in a single request, which takes longer for larger databases. If the check fails with a gateway timeout such as 504, raise the proxy's read timeout, for example `proxy_read_timeout` in Nginx.
 
 See [reverse proxy configuration](/en_US/guide/q3.html) for complete proxy examples.
