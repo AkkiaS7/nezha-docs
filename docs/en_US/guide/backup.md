@@ -110,7 +110,7 @@ After a restore is applied, the dashboard exits and swaps in the data on its nex
 ### Step 1: Check the backup
 
 - **From the list:** click **Restore** next to a backup.
-- **From a file:** click **Restore from file** and choose a `.nzbak` file (up to 256 MiB).
+- **From a file:** click **Restore from file** and choose a `.nzbak` file (it must not exceed the [backup size limit](#backup-size-limit), 1 GiB by default).
 
 Enter the backup password, or switch to the recovery key, then click **Check backup**. The dashboard downloads and verifies the backup: checksum, decryption, contents, origin, version compatibility, database integrity, and the presence of an administrator account.
 
@@ -173,6 +173,52 @@ The check compares the core version `X.Y.Z` of the backup with the current dashb
 
 Backup files carry a format version. A dashboard refuses formats it does not recognize instead of trying to read them.
 
+::: warning Backups over 256 MiB need a newer version to restore
+v2.8.0 has a fixed backup size limit of 256 MiB. A backup whose file or unpacked contents exceed 256 MiB can only be restored on a version that supports `NZ_BACKUP_MAX_SIZE_MB`. v2.8.0 refuses such a backup without changing any data, but the error can be misleading: when the file itself exceeds 256 MiB, it reports that the size limit is exceeded; when the file is within 256 MiB but its unpacked contents are not, it reports "backup file is corrupt or has been modified" instead.
+:::
+
+## Backup size limit
+
+To keep oversized or crafted files from filling the disk during a restore, backups have a size limit, **1 GiB** by default. It applies to both the backup file itself and the total unpacked size of its contents (the database and `config.yaml`). A backup that would exceed the limit fails, so no backup is produced that could not be restored; downloads, uploads and restores refuse files over the limit.
+
+For a larger database, raise the limit with the environment variable `NZ_BACKUP_MAX_SIZE_MB`:
+
+- The value is a whole number of MiB from 64 to 65536, for example `2048` for 2 GiB.
+- When it is not set, the default of 1024 applies. An invalid value is logged and the default is used.
+- It can only be set as an environment variable, not in the admin panel. Restart the dashboard after changing it.
+- Backups and restores share the limit. Before restoring a large backup on a new host, set it on the new host as well.
+
+With Docker Compose, add it under `environment`:
+
+```yaml
+services:
+  dashboard:
+    environment:
+      NZ_BACKUP_MAX_SIZE_MB: "2048"
+```
+
+With systemd or another service manager, set the same variable in the service environment.
+
+When the limit is exceeded, the error reads like `backup file exceeds the size limit (1024 MiB); set the environment variable NZ_BACKUP_MAX_SIZE_MB to raise the limit`. The limit cannot be turned off: it guards against malicious files, so set it according to the actual size of your database rather than as high as possible.
+
+### Disk space
+
+Backups and restores write temporary files below the data directory. Before writing, the dashboard checks the free space of the disk that holds the data directory and always keeps 256 MiB free for the running database:
+
+- A backup holds a database snapshot and the encrypted backup file, so it needs free space of at least twice the database size plus 256 MiB.
+- A restore holds the downloaded or uploaded backup file and the unpacked data. When backups are configured, applying a restore first creates a pre-restore backup as well.
+
+Keep free space of at least 2–3 times the database size on the disk that holds the data directory. When space runs short, the operation fails before writing and removes its temporary files, with an error like `not enough free disk space in the data directory: … MiB needed, … MiB free`.
+
+### Reverse proxies
+
+When the dashboard is behind a reverse proxy, restore uploads and backup checks go through the proxy:
+
+- **Upload size:** the proxy must accept request bodies at least as large as the backup file, which can reach the limit. Nginx allows only 1 MiB by default; raise it in the dashboard's `location`, for example `client_max_body_size 1100m;` for a 1 GiB limit (Caddy does not limit request bodies by default).
+- **Timeouts:** a backup check downloads, decrypts and checks the database in a single request, which takes longer for larger databases. If the check fails with a gateway timeout such as 504, raise the proxy's read timeout, for example `proxy_read_timeout` in Nginx.
+
+See [reverse proxy configuration](/en_US/guide/q3.html) for complete proxy examples.
+
 ## Configure storage with environment variables
 
 The S3 storage fields can also be set with environment variables, for example to inject them from a container orchestrator or secret manager:
@@ -186,6 +232,8 @@ The S3 storage fields can also be set with environment variables, for example to
 | `NZ_BACKUP_S3_ACCESS_KEY_ID` | Access Key ID |
 | `NZ_BACKUP_S3_SECRET_ACCESS_KEY` | Secret Access Key |
 
+The backup size limit is set separately with `NZ_BACKUP_MAX_SIZE_MB`; see [backup size limit](#backup-size-limit).
+
 Fields set by an environment variable are shown as "Set by an environment variable" and cannot be changed in the admin panel. When the secret comes from an environment variable, the endpoint and bucket are read-only as well, so the secret cannot be sent to another address entered in the admin panel. The other backup settings are kept in a separate `backup.yaml` in the data directory (mode 0600), not in `config.yaml`. These names do not follow the [environment variable naming rules](/en_US/configuration/environment.html) of `config.yaml` fields; use them exactly as listed above.
 
 ## FAQ
@@ -195,6 +243,9 @@ Built-in backups need no downtime, are encrypted and uploaded to off-site storag
 
 **Agents are offline after a restore?**
 Agents added after the backup do not exist in the backup data and must be added again. Other agents reconnect automatically; if the dashboard address changed, update the agents' connection address.
+
+**A backup fails because it exceeds the size limit?**
+The database is larger than the current backup size limit. Set `NZ_BACKUP_MAX_SIZE_MB` as described in [backup size limit](#backup-size-limit), restart the dashboard, and make sure there is enough free disk space.
 
 **The dashboard did not come back after applying a restore?**
 Check that it runs under a supervisor, then start it manually. The swap happens at start, nothing else is needed.

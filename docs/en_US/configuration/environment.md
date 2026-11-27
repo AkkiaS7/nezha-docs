@@ -43,7 +43,7 @@ File edits load after a Dashboard restart. Admin settings update runtime state t
 
 ### Backup storage variables
 
-S3 storage for [built-in backups](/en_US/guide/backup.html) uses separately named variables: `NZ_BACKUP_S3_ENDPOINT`, `NZ_BACKUP_S3_BUCKET`, `NZ_BACKUP_S3_REGION`, `NZ_BACKUP_S3_PREFIX`, `NZ_BACKUP_S3_ACCESS_KEY_ID`, and `NZ_BACKUP_S3_SECRET_ACCESS_KEY`. They do not map to `config.yaml` by the rules above: when set, they take precedence over values saved in the admin panel, the matching fields cannot be edited there, and they are never written back. The other backup settings are kept in a separate `backup.yaml` in the data directory.
+S3 storage for [built-in backups](/en_US/guide/backup.html) uses separately named variables: `NZ_BACKUP_S3_ENDPOINT`, `NZ_BACKUP_S3_BUCKET`, `NZ_BACKUP_S3_REGION`, `NZ_BACKUP_S3_PREFIX`, `NZ_BACKUP_S3_ACCESS_KEY_ID`, and `NZ_BACKUP_S3_SECRET_ACCESS_KEY`. They do not map to `config.yaml` by the rules above: when set, they take precedence over values saved in the admin panel, the matching fields cannot be edited there, and they are never written back. The backup size limit is set with `NZ_BACKUP_MAX_SIZE_MB` (in MiB, 64 to 65536, default 1024), which can likewise only be set as an environment variable; see [backup size limit](/en_US/guide/backup.html#backup-size-limit). The other backup settings are kept in a separate `backup.yaml` in the data directory.
 
 ## Agent naming rules
 
