@@ -196,6 +196,22 @@ A compaction needs temporary disk space: SQLite first writes the compacted datab
 
 If a compaction while restarting fails, or the dashboard stops during it, the dashboard still starts normally, does not try that compaction again, and shows the reason in the result. The deleted records are not affected.
 
+### Periodic Maintenance and "Compaction While Restarting Recommended"
+
+The dashboard maintains the database every Sunday at 04:00; calling [`POST /api/v1/maintenance`](/en_US/guide/api.html#database-maintenance-api) does the same. The maintenance does not always compact the whole database; it depends:
+
+- **Little free space** (under 10% of the database and under 64 MiB): nothing is done; new data reuses that space.
+- **The database is in incremental mode**: the free space is returned to the disk in many small batches. Each batch holds the database only briefly, so the admin panel and agent reports are hardly affected.
+- **The database is not in incremental mode yet**: when the compaction is expected to take no more than 3 seconds, the database is compacted and turned to incremental mode at the same time. When it would take longer, it is skipped and only logged, so the database is not locked for long.
+
+A new installation creates its database in incremental mode. A database from an older version turns to incremental mode at its first compaction (while restarting or now), after which the periodic maintenance never needs to compact the whole database again.
+
+When the database is large, has much free space and is not in incremental mode yet, this page shows **compaction while restarting recommended**. Run a cleanup and choose **Compact while restarting the dashboard**. The cleanup deletes the records older than the chosen retention and, whatever the retention, the history of deleted services (see [What Is Deleted](#what-is-deleted)); the longer the retention, the fewer records it deletes. After the compaction the database is in incremental mode and the notice goes away. If the dashboard cannot restart itself, choose **Compact now** at a quiet time.
+
+::: tip Change from earlier versions
+Earlier versions compacted the whole database at every weekly maintenance and every `POST /api/v1/maintenance`. On a large database the admin panel stalled or asked to sign in again meanwhile, and agent reports were lost. The maintenance now works as described above: a large database is no longer compacted by it until it is in incremental mode.
+:::
+
 ### Back Up First
 
 Deleted history cannot be recovered. If you may need it later, take a backup in the **Backup** tab first (the confirmation dialog links there as **Go to backups**). A cleanup asks for confirmation twice: first for the retention period, the estimate and the compaction mode, then for the deletion itself.

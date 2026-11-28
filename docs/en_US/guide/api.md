@@ -567,6 +567,12 @@ Management APIs require login. JWT requests are authorized by user role and reso
 | WAF and online users | `/api/v1/waf`, `/api/v1/batch-delete/waf`, `/api/v1/online-user`, `/api/v1/online-user/batch-block` | `nezha:admin:*` |
 | System settings and maintenance | `PATCH /api/v1/setting`, `POST /api/v1/maintenance` | `nezha:admin:*` |
 
+### Database Maintenance API
+
+`POST /api/v1/maintenance` does what the automatic maintenance does every Sunday at 04:00: it returns the free space of the SQLite database to the disk as needed and runs the TSDB maintenance (if enabled). It no longer always compacts the whole database: with little free space it does nothing; a database in incremental mode is reclaimed in small batches; a database not in incremental mode yet whose compaction is expected to take more than 3 seconds is skipped, which is only logged. See [Database settings](/en_US/guide/settings.html#periodic-maintenance-and-compaction-while-restarting-recommended) for the rules. The path and response are unchanged; it returns an error while another database cleanup, compaction or restore is in progress.
+
+When `vacuum_recommended` in the response of `GET /api/v1/database/usage` is `true`, the maintenance skips the compaction and a cleanup with "compact while restarting the dashboard" is recommended once. The field is omitted when it is `false`.
+
 Before writing management automation scripts, test them in a staging environment to avoid bulk changes to servers, notifications, tasks, or user configuration.
 
 The `/api/v1/ws/transfer` event stream allows at most 8 concurrent subscriptions per user and 1024 per Dashboard process. Close unused transfer tabs or WebSocket clients before retrying. These are subscription limits, not counts of transferred servers.
