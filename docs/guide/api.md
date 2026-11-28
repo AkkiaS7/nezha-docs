@@ -567,6 +567,12 @@ GET /api/v1/server/{id}/service
 | WAF 和在线用户 | `/api/v1/waf`、`/api/v1/batch-delete/waf`、`/api/v1/online-user`、`/api/v1/online-user/batch-block` | `nezha:admin:*` |
 | 系统设置和维护 | `PATCH /api/v1/setting`、`POST /api/v1/maintenance` | `nezha:admin:*` |
 
+### 数据库维护接口
+
+`POST /api/v1/maintenance` 与每周日 04:00 的自动维护相同：按需把 SQLite 数据库空出的空间还给磁盘，并执行 TSDB 维护（如已启用）。它不再无条件压缩整个数据库：空出的空间不多时不做任何事；数据库是增量模式时分小批次回收；还不是增量模式、预计压缩超过 3 秒时跳过，只在日志中记录。规则详见[数据库设置](/guide/settings.html#定期维护与-建议重启压缩)。接口路径和返回不变；另一项数据库清理、压缩或恢复正在进行时返回错误。
+
+`GET /api/v1/database/usage` 返回的 `vacuum_recommended` 为 `true` 时，表示维护会跳过压缩，建议通过清理功能“重启面板时压缩”一次；该字段为 `false` 时不返回。
+
 直接写管理类自动化脚本前，建议先在测试环境验证，避免批量修改服务器、通知、任务或用户配置。
 
 `/api/v1/ws/transfer` 事件流每用户最多同时订阅 8 条，整个 Dashboard 进程最多 1024 条；达到上限时请关闭不用的转移页面或 WebSocket 客户端后重试。这是订阅数限制，不是可转移服务器数量。
