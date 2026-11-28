@@ -19,29 +19,37 @@ outline: deep
 - 包含新提示的版本会显示：「登录被拒绝：请求的 Origin 与面板收到的 Host 不一致。如果使用了反向代理，请确认它原样转发了浏览器的 Host 请求头（包括端口）。」
 - 更早的 v2.6.0 及以上版本会显示「用户名或密码错误」，与真正输错密码时相同。
 
+包含新提示的版本还会把省略的端口与对应协议的默认端口视为等价（`https` 为 `443`，`http` 为 `80`）：浏览器访问 `https://dashboard.example.com` 时，`Host` 为 `dashboard.example.com:443` 也能登录。更早的 v2.6.0 及以上版本要求两者完全一致。
+
 常见原因：
 
 | 浏览器访问地址 | Dashboard 收到的 Host | 原因 |
 | --- | --- | --- |
 | `https://dashboard.example.com:8443` | `dashboard.example.com` | Nginx 使用了 `proxy_set_header Host $host;`，`$host` 不带端口 |
 | `https://dashboard.example.com` | `127.0.0.1:8008` | Nginx 没有设置 `Host`，或代理、CDN、隧道把 Host 改写成了源站地址 |
-| `https://dashboard.example.com` | `dashboard.example.com:443` | 代理在 Host 中加上了默认端口，尚未包含新提示的版本会拒绝 |
+| `https://dashboard.example.com` | `dashboard.example.com:443` | 代理在 Host 中加上了默认端口。包含新提示的版本视为一致，可以登录；更早的 v2.6.0 及以上版本会拒绝 |
 
 这类失败不计入 Web 应用防火墙（WAF）的登录失败次数。但如果因此反复尝试其他密码，那些错误的密码会被计入，可能导致 IP 被封禁。
 
 ### 自查
 
-1. **绕过代理直接访问**：访问 `http://服务器IP:8008/dashboard` 并登录。如果 `8008` 端口没有对外开放，可以先建立 SSH 端口转发 `ssh -L 8008:127.0.0.1:8008 用户名@服务器IP`，再访问 `http://127.0.0.1:8008/dashboard`。直连能登录，说明密码正确，问题出在代理转发的 Host 上。
+1. **通过 SSH 本地转发绕过代理登录**：不要通过公网直接访问 `http://服务器IP:8008` 登录，密码会以明文传输。在自己的电脑上建立 SSH 本地端口转发并保持连接：
+
+   ```bash
+   ssh -N -L 8008:127.0.0.1:8008 用户名@服务器IP
+   ```
+
+   然后在本机浏览器访问 `http://127.0.0.1:8008/dashboard` 并登录，流量经 SSH 加密传到服务器。如果本机的 `8008` 端口已被占用，把第一个 `8008` 换成其他端口，访问地址随之改变；如果 Dashboard 监听的不是 `8008`，替换第二个 `8008`。直连能登录，说明密码正确，问题出在代理转发的 Host 上。
 2. **对比请求头**：在浏览器开发者工具的“网络”面板中找到登录请求 `/api/v1/login`，查看请求头 `Origin`，与代理实际转发给 Dashboard 的 `Host` 对比，两者的主机名和端口应当一致。
 
 ### 修正代理配置
 
 - **Nginx**：在转发 Dashboard 的 `location` 中使用 `proxy_set_header Host $http_host;`。`$http_host` 是浏览器发送的原始 Host，包含非标准端口。完整示例见 [反向代理配置](/guide/q3.html)。
-- **Caddy**：`reverse_proxy` 默认原样转发 Host，不需要额外设置。如果显式写了 `header_up Host`，请使用 `{hostport}`，不要用不带端口的 `{host}`，也不要改成上游地址（如 `{upstream_hostport}`）。
+- **Caddy**：上游为 HTTP 时（如 `to localhost:8008`），`reverse_proxy` 默认原样转发 Host，不需要额外设置。上游为 HTTPS 时，Caddy 2.11 起默认把 Host 设为上游地址，需要显式写 `header_up Host {hostport}`。显式设置 `header_up Host` 时，请使用 `{hostport}`，不要用不带端口的 `{host}`，也不要改成上游地址（如 `{upstream_hostport}`）。
 - **Cloudflare Tunnel**：在 Public Hostname 的 HTTP 设置中，将 **HTTP Host Header** 留空；使用配置文件时不要设置 `originRequest.httpHostHeader`。如果必须设置，请填写浏览器实际访问的域名。
 - **其他 CDN、面板软件或负载均衡**：把回源 Host（或“发送域名”）设置为浏览器实际访问的域名；通过非标准端口访问时要带上端口。
 
-不要为了让登录通过而改写 `Origin` 请求头（如在 `location /` 中写 `proxy_set_header Origin ...`，或在 Caddy 中写 `header_up Origin ...`），这会让这项保护失效。应当让转发的 Host 与浏览器地址保持一致。
+不要为了让登录通过而改写 `Origin` 请求头（如在 Nginx 中写 `proxy_set_header Origin ...`，或在 Caddy 中写 `header_up Origin ...`），这会让这项保护失效。应当让转发的 Host 与浏览器地址保持一致。
 
 ## OAuth2 登录失败
 
