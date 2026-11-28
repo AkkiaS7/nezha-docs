@@ -147,6 +147,71 @@ When creating a token, select scopes, optional server ID whitelist, and expirati
 
 ---
 
+## Database
+
+This tab shows how much space the SQLite database takes and lets you clean up old service monitoring history by hand, to reduce the database and [backup](/en_US/guide/backup.html) size and shorten restores. It is visible only to administrators.
+
+Without TSDB, service monitoring history is stored in the SQLite table `service_histories`. It is never cleaned up automatically, so the database keeps growing as the dashboard runs.
+
+### Usage and Estimate
+
+The top of the page shows the current state:
+
+- **Database size**: the size of the database file, including the WAL file that has not been checkpointed yet.
+- **Reclaimable by compaction now**: space already freed inside the database but not yet returned to the disk; a compaction returns it.
+- **Service history records** and **Oldest record**.
+- **Free disk space**: the free space of the disk holding the database, shown as unknown when it cannot be determined.
+
+After you choose a retention period, the page estimates the cleanup: the records to delete, the space it would free, and the database size after compaction. A cleanup cannot run when there is nothing to delete. The space to free is the history's share of the database scaled by the share of records to delete, plus the space already freed. It is only an estimate: the space actually freed may differ from it. When the database is large and the exact count times out, the record count is approximated and marked "(record count is approximate)".
+
+![Database tab after choosing a retention period](/images/database/1_en_US.png)
+
+::: tip One-time change after upgrading
+The first start of a version with this feature drops a redundant single-column `created_at` index of `service_histories` (a composite index already covers that column). The freed space then shows as **Reclaimable by compaction now**; one compaction returns it to the disk.
+:::
+
+### What Is Deleted
+
+Keep history for 30 days (default), 90 days, 180 days, or a custom 1–3650 days. A cleanup deletes:
+
+- per-server service history older than the retention period (the data behind the 1-day, 7-day and 30-day service charts);
+- 15-minute summaries (the data behind the 30-day status bar) older than the retention period. **Summaries are always kept for at least 30 days**: with a retention under 30 days they are still kept for 30 days;
+- all history of deleted services, however recent.
+
+With less than 30 days kept, the 30-day charts are incomplete; with less than 7 days, the 7-day charts are incomplete as well. The 30-day status bar is not affected.
+
+Records are deleted in the background in small batches with pauses in between, so agent reports and page requests carry on meanwhile. The page shows the current stage (deleting, compacting, restarting) and, when the cleanup finishes, the records deleted and the space freed.
+
+### Compaction (VACUUM)
+
+Deleting records alone does not shrink the database file: the space is returned to the disk only by a compaction (SQLite `VACUUM`). Choose how to compact:
+
+- **Compact now**: compact right after deleting. The whole database is locked while compacting; dashboard requests wait for it for up to about 5 seconds and then fail, so the dashboard may stall or ask you to sign in again, and some monitoring data reported by agents meanwhile is lost. Everything recovers when compaction ends.
+- **Compact while restarting the dashboard**: after deleting, the dashboard restarts and compacts the database while starting, before it serves anything. It is unavailable meanwhile; signed-in sessions and agents are disconnected and reconnect automatically. This needs the dashboard to run under Docker or systemd with automatic restart (such as Docker's `restart: always` or systemd's `Restart=always`). The dashboard can only detect the environment, not the restart policy: without automatic restart it has to be started by hand after it exits. When no such environment is detected, this option is unavailable.
+- **Do not compact**: only delete the records; the file size does not change. The freed space is reused by new data, and choosing a compaction in the next cleanup returns it.
+
+The page estimates how long a compaction takes (from the data left after the cleanup, about 15 seconds per GiB) and recommends a mode: compact now when it is expected to take no more than 3 seconds, otherwise compact while restarting; when the dashboard cannot restart itself, compact now at a quiet time or do not compact. The recommended mode is selected by default.
+
+A compaction needs temporary disk space: SQLite first writes the compacted database to its temporary directory, then copies it back while keeping the overwritten content in a rollback journal next to the database. The page shows the space needed, about the current database size plus the size after compaction. When the free disk space is short, the page only allows deleting records; if the space turns out short when the cleanup runs, the dashboard skips the compaction and says so in the result.
+
+If a compaction while restarting fails, or the dashboard stops during it, the dashboard still starts normally, does not try that compaction again, and shows the reason in the result. The deleted records are not affected.
+
+### Back Up First
+
+Deleted history cannot be recovered. If you may need it later, take a backup in the **Backup** tab first (the confirmation dialog links there as **Go to backups**). A cleanup asks for confirmation twice: first for the retention period, the estimate and the compaction mode, then for the deletion itself.
+
+![First confirmation](/images/database/2_en_US.png)
+
+![Second confirmation](/images/database/3_en_US.png)
+
+Only one database cleanup, compaction or restore runs at a time: starting another meanwhile is refused with "another database cleanup or maintenance is in progress".
+
+### With TSDB Enabled
+
+With [TSDB](/en_US/guide/q15.html) enabled, service monitoring history is stored in TSDB and the `service_histories` table is no longer used. The Database tab then only shows the usage, without the cleanup, and the history's retention is set by [`tsdb.retention_days`](/en_US/configuration/dashboard.html#tsdb).
+
+---
+
 ## User Management
 
 This tab allows adding multiple users to the Dashboard.
