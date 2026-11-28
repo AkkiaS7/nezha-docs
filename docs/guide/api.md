@@ -569,11 +569,18 @@ GET /api/v1/server/{id}/service
 
 ### 数据库维护接口
 
-`POST /api/v1/maintenance` 与每周日 04:00 的自动维护相同：按需把 SQLite 数据库空出的空间还给磁盘，并执行 TSDB 维护（如已启用）。它不再无条件压缩整个数据库：空出的空间不多时不做任何事；数据库是增量模式时分小批次回收；还不是增量模式、预计压缩超过 3 秒时跳过，只在日志中记录。规则详见[数据库设置](/guide/settings.html#定期维护与-建议重启压缩)。接口路径和返回不变；另一项数据库清理、压缩或恢复正在进行时返回错误。
+`POST /api/v1/maintenance` 与每周日 04:00 的自动维护相同：按需把 SQLite 数据库空出的空间还给磁盘，并执行 TSDB 维护（如已启用）。它不再无条件压缩整个数据库：空出的空间不多时不做任何事；数据库是增量模式时分小批次回收；还不是增量模式、预计压缩超过 3 秒时跳过，只在日志中记录。规则详见[数据库设置](/guide/settings.html#定期维护与压缩建议)。接口路径和返回不变；另一项数据库清理、压缩或恢复正在进行时返回错误。
 
 `GET /api/v1/database/usage` 返回的 `vacuum_recommended` 为 `true` 时，表示维护会跳过压缩，建议“重启面板时压缩”一次；该字段为 `false` 时不返回。
 
-`POST /api/v1/database/compact` 只压缩数据库，不删除任何记录。`GET /api/v1/database/usage` 返回 `compact_available: true` 表示面板支持这个接口，较早的版本不返回该字段。请求体为 `{"vacuum_mode": "online"}`（现场压缩，期间面板不响应）或 `{"vacuum_mode": "restart"}`（面板重启，并在开始服务前压缩，需要 `restart_available` 为 `true`）。压缩后数据库转为增量模式。返回的任务带有 `compact_only: true`，进度和结果通过 `GET /api/v1/database/usage` 的 `job` 查询。与清理、维护、恢复同一时间只能进行一项。权限同上，需要 `nezha:admin:*` 且调用用户是管理员。
+`POST /api/v1/database/compact` 只压缩数据库，不删除任何记录。`GET /api/v1/database/usage` 返回 `compact_available: true` 表示面板支持这个接口，较早的版本不返回该字段。请求体为 `{"vacuum_mode": "online"}`（现场压缩，期间面板不响应）或 `{"vacuum_mode": "restart"}`（面板重启，并在开始服务前压缩，需要 `restart_available` 为 `true`）。返回的任务带有 `compact_only: true`，进度和结果通过 `GET /api/v1/database/usage` 的 `job` 查询：
+
+- 压缩成功：`state` 为 `"succeeded"`，`vacuum_skipped` 为空，`freed_size` 为释放的字节数。只有这时数据库才会转为增量模式。
+- 磁盘剩余空间不足：不执行压缩，数据库不变。任务同样以 `state: "succeeded"` 结束，但 `vacuum_skipped` 为 `"insufficient_disk"`。客户端要先检查 `vacuum_skipped`，不能只看 `state` 就当作已压缩。
+- 压缩失败：`state` 为 `"failed"`，原因在 `error` 中。
+- 选择 `restart` 时，任务先进入 `"restarting"`，面板重启后 `job` 为上面三种结果之一。
+
+与清理、维护、恢复同一时间只能进行一项。权限：调用用户必须是管理员；使用 API Token 调用时，Token 还需要 `nezha:admin:*`（或 `nezha:*`）作用域。
 
 直接写管理类自动化脚本前，建议先在测试环境验证，避免批量修改服务器、通知、任务或用户配置。
 
