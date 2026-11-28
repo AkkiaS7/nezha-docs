@@ -162,7 +162,7 @@ The top of the page shows the current state:
 - **Service history records** and **Oldest record**.
 - **Free disk space**: the free space of the disk holding the database, shown as unknown when it cannot be determined.
 
-After you choose a retention period, the page estimates the cleanup: the records to delete, the space it would free, and the database size after compaction. A cleanup cannot run when there is nothing to delete. The space to free is the history's share of the database scaled by the share of records to delete, plus the space already freed. It is only an estimate: the space actually freed may differ, usually being a little less. When the database is large and the exact count times out, the record count is approximated and marked "(record count is approximate)".
+After you choose a retention period, the page estimates the cleanup: the records to delete, the space it would free, and the database size after compaction. A cleanup cannot run when there is nothing to delete. The space to free is the history's share of the database scaled by the share of records to delete, plus the space already freed. It is only an estimate: the space actually freed may differ from it. When the database is large and the exact count times out, the record count is approximated and marked "(record count is approximate)".
 
 ![Database tab after choosing a retention period](/images/database/1_en_US.png)
 
