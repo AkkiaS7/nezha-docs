@@ -571,7 +571,9 @@ Management APIs require login. JWT requests are authorized by user role and reso
 
 `POST /api/v1/maintenance` does what the automatic maintenance does every Sunday at 04:00: it returns the free space of the SQLite database to the disk as needed and runs the TSDB maintenance (if enabled). It no longer always compacts the whole database: with little free space it does nothing; a database in incremental mode is reclaimed in small batches; a database not in incremental mode yet whose compaction is expected to take more than 3 seconds is skipped, which is only logged. See [Database settings](/en_US/guide/settings.html#periodic-maintenance-and-compaction-while-restarting-recommended) for the rules. The path and response are unchanged; it returns an error while another database cleanup, compaction or restore is in progress.
 
-When `vacuum_recommended` in the response of `GET /api/v1/database/usage` is `true`, the maintenance skips the compaction and a cleanup with "compact while restarting the dashboard" is recommended once. The field is omitted when it is `false`.
+When `vacuum_recommended` in the response of `GET /api/v1/database/usage` is `true`, the maintenance skips the compaction and one compaction while restarting the dashboard is recommended. The field is omitted when it is `false`.
+
+`POST /api/v1/database/compact` compacts the database and deletes no records. Send `{"vacuum_mode": "online"}` (compact now; the dashboard does not answer meanwhile) or `{"vacuum_mode": "restart"}` (the dashboard restarts and compacts before it serves; needs `restart_available` to be `true`). The database is in incremental mode afterwards. The returned job has `compact_only: true`; follow its progress and result in the `job` of `GET /api/v1/database/usage`. Only one cleanup, compaction, maintenance or restore runs at a time. It needs `nezha:admin:*` and an administrator, like the other maintenance APIs.
 
 Before writing management automation scripts, test them in a staging environment to avoid bulk changes to servers, notifications, tasks, or user configuration.
 
