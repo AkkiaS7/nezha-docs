@@ -8,7 +8,40 @@ outline: deep
 
 ## 忘记管理员密码
 
-请参考 [初始化用户密码](/guide/q13.html)。重置后建议立即登录后台修改为新的强密码。
+请参考 [初始化用户密码](/guide/q13.html)，推荐只重置指定用户的密码。重置后建议立即登录后台修改为新的强密码。
+
+如果是升级后正确的密码也提示错误，请先看下一节，很可能不需要重置密码。
+
+## 升级到 v2.6.0 及以上后提示密码错误
+
+从 v2.6.0 起，Dashboard 在密码登录时会检查浏览器请求的 `Origin` 是否与 Dashboard 收到的 `Host` 一致（主机名和端口都要相同，不区分大小写），用于防御跨站请求伪造（CSRF）。如果反向代理、CDN 或隧道转发给 Dashboard 的 `Host` 与浏览器地址栏不一致，即使密码正确也无法登录：
+
+- 包含新提示的版本会显示：「登录被拒绝：请求的 Origin 与面板收到的 Host 不一致。如果使用了反向代理，请确认它原样转发了浏览器的 Host 请求头（包括端口）。」
+- 更早的 v2.6.0 及以上版本会显示「用户名或密码错误」，与真正输错密码时相同。
+
+常见原因：
+
+| 浏览器访问地址 | Dashboard 收到的 Host | 原因 |
+| --- | --- | --- |
+| `https://dashboard.example.com:8443` | `dashboard.example.com` | Nginx 使用了 `proxy_set_header Host $host;`，`$host` 不带端口 |
+| `https://dashboard.example.com` | `127.0.0.1:8008` | Nginx 没有设置 `Host`，或代理、CDN、隧道把 Host 改写成了源站地址 |
+| `https://dashboard.example.com` | `dashboard.example.com:443` | 代理在 Host 中加上了默认端口，尚未包含新提示的版本会拒绝 |
+
+这类失败不计入 Web 应用防火墙（WAF）的登录失败次数。但如果因此反复尝试其他密码，那些错误的密码会被计入，可能导致 IP 被封禁。
+
+### 自查
+
+1. **绕过代理直接访问**：访问 `http://服务器IP:8008/dashboard` 并登录。如果 `8008` 端口没有对外开放，可以先建立 SSH 端口转发 `ssh -L 8008:127.0.0.1:8008 用户名@服务器IP`，再访问 `http://127.0.0.1:8008/dashboard`。直连能登录，说明密码正确，问题出在代理转发的 Host 上。
+2. **对比请求头**：在浏览器开发者工具的“网络”面板中找到登录请求 `/api/v1/login`，查看请求头 `Origin`，与代理实际转发给 Dashboard 的 `Host` 对比，两者的主机名和端口应当一致。
+
+### 修正代理配置
+
+- **Nginx**：在转发 Dashboard 的 `location` 中使用 `proxy_set_header Host $http_host;`。`$http_host` 是浏览器发送的原始 Host，包含非标准端口。完整示例见 [反向代理配置](/guide/q3.html)。
+- **Caddy**：`reverse_proxy` 默认原样转发 Host，不需要额外设置。如果显式写了 `header_up Host`，请使用 `{hostport}`，不要用不带端口的 `{host}`，也不要改成上游地址（如 `{upstream_hostport}`）。
+- **Cloudflare Tunnel**：在 Public Hostname 的 HTTP 设置中，将 **HTTP Host Header** 留空；使用配置文件时不要设置 `originRequest.httpHostHeader`。如果必须设置，请填写浏览器实际访问的域名。
+- **其他 CDN、面板软件或负载均衡**：把回源 Host（或“发送域名”）设置为浏览器实际访问的域名；通过非标准端口访问时要带上端口。
+
+不要为了让登录通过而改写 `Origin` 请求头（如在 `location /` 中写 `proxy_set_header Origin ...`，或在 Caddy 中写 `header_up Origin ...`），这会让这项保护失效。应当让转发的 Host 与浏览器地址保持一致。
 
 ## OAuth2 登录失败
 

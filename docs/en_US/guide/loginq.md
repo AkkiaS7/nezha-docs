@@ -8,7 +8,40 @@ The current V2 Dashboard uses local account login and supports binding local acc
 
 ## Forgot Administrator Password
 
-See [Initialize User Password](/en_US/guide/q13.html). After resetting it, log in to the admin frontend and change it to a new strong password as soon as possible.
+See [Initialize User Password](/en_US/guide/q13.html); resetting only the affected user's password is recommended. After resetting it, log in to the admin frontend and change it to a new strong password as soon as possible.
+
+If the correct password is rejected after an upgrade, read the next section first. You probably do not need to reset the password.
+
+## Incorrect Password After Upgrading to v2.6.0 or Later
+
+Since v2.6.0, Dashboard checks during password login that the browser's `Origin` header matches the `Host` header Dashboard receives (both the host name and the port, case-insensitive), to defend against cross-site request forgery (CSRF). If a reverse proxy, CDN, or tunnel forwards a `Host` that differs from the browser's address bar, login fails even with the correct password:
+
+- Versions with the dedicated message show: "Login was refused because the request Origin does not match the Host received by the dashboard. If you use a reverse proxy, make sure it forwards the original Host header, including the port."
+- Earlier v2.6.0+ versions show "Invalid Username Or Password", the same message as a real wrong password.
+
+Common causes:
+
+| Browser address | Host received by Dashboard | Cause |
+| --- | --- | --- |
+| `https://dashboard.example.com:8443` | `dashboard.example.com` | Nginx uses `proxy_set_header Host $host;`, and `$host` has no port |
+| `https://dashboard.example.com` | `127.0.0.1:8008` | Nginx does not set `Host`, or a proxy, CDN, or tunnel rewrites Host to the origin address |
+| `https://dashboard.example.com` | `dashboard.example.com:443` | The proxy adds the default port to Host; versions without the dedicated message reject it |
+
+These failures are not counted by the Web Application Firewall (WAF) as failed logins. However, if you then try other passwords, those wrong passwords are counted and may get your IP blocked.
+
+### Self-Check
+
+1. **Bypass the proxy**: Open `http://server-ip:8008/dashboard` and log in. If port `8008` is not publicly reachable, create an SSH port forward with `ssh -L 8008:127.0.0.1:8008 user@server-ip`, then open `http://127.0.0.1:8008/dashboard`. If the direct login works, the password is correct and the problem is the Host forwarded by the proxy.
+2. **Compare the headers**: In the browser developer tools Network panel, find the login request `/api/v1/login` and check its `Origin` request header. Compare it with the `Host` the proxy actually forwards to Dashboard; the host name and port must match.
+
+### Fix the Proxy Configuration
+
+- **Nginx**: In the `location` blocks that proxy Dashboard, use `proxy_set_header Host $http_host;`. `$http_host` is the original Host sent by the browser, including any non-standard port. See [Reverse Proxy Configuration](/en_US/guide/q3.html) for a full example.
+- **Caddy**: `reverse_proxy` forwards Host unchanged by default, so no extra setting is needed. If you set `header_up Host` explicitly, use `{hostport}`, not `{host}` (which has no port), and do not replace it with the upstream address (such as `{upstream_hostport}`).
+- **Cloudflare Tunnel**: In the Public Hostname HTTP settings, leave **HTTP Host Header** empty; in a configuration file, do not set `originRequest.httpHostHeader`. If you must set it, use the domain the browser actually visits.
+- **Other CDNs, hosting panels, or load balancers**: Set the origin Host (or "origin domain") to the domain the browser actually visits, and include the port when accessing through a non-standard port.
+
+Do not rewrite the `Origin` header to make login pass (such as `proxy_set_header Origin ...` in `location /`, or `header_up Origin ...` in Caddy). That defeats this protection. Make the forwarded Host match the browser address instead.
 
 ## OAuth2 Login Failed
 
