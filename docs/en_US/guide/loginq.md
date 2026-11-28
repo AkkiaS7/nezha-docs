@@ -19,29 +19,37 @@ Since v2.6.0, Dashboard checks during password login that the browser's `Origin`
 - Versions with the dedicated message show: "Login was refused because the request Origin does not match the Host received by the dashboard. If you use a reverse proxy, make sure it forwards the original Host header, including the port."
 - Earlier v2.6.0+ versions show "Invalid Username Or Password", the same message as a real wrong password.
 
+Versions with the dedicated message also treat an omitted port as equal to the scheme's default port (`443` for `https`, `80` for `http`): when the browser visits `https://dashboard.example.com`, a `Host` of `dashboard.example.com:443` can still log in. Earlier v2.6.0+ versions require an exact match.
+
 Common causes:
 
 | Browser address | Host received by Dashboard | Cause |
 | --- | --- | --- |
 | `https://dashboard.example.com:8443` | `dashboard.example.com` | Nginx uses `proxy_set_header Host $host;`, and `$host` has no port |
 | `https://dashboard.example.com` | `127.0.0.1:8008` | Nginx does not set `Host`, or a proxy, CDN, or tunnel rewrites Host to the origin address |
-| `https://dashboard.example.com` | `dashboard.example.com:443` | The proxy adds the default port to Host; versions without the dedicated message reject it |
+| `https://dashboard.example.com` | `dashboard.example.com:443` | The proxy adds the default port to Host. Versions with the dedicated message treat it as a match and allow login; earlier v2.6.0+ versions reject it |
 
 These failures are not counted by the Web Application Firewall (WAF) as failed logins. However, if you then try other passwords, those wrong passwords are counted and may get your IP blocked.
 
 ### Self-Check
 
-1. **Bypass the proxy**: Open `http://server-ip:8008/dashboard` and log in. If port `8008` is not publicly reachable, create an SSH port forward with `ssh -L 8008:127.0.0.1:8008 user@server-ip`, then open `http://127.0.0.1:8008/dashboard`. If the direct login works, the password is correct and the problem is the Host forwarded by the proxy.
+1. **Bypass the proxy through an SSH local forward**: Do not log in through `http://server-ip:8008` over the public internet, because the password would be sent in plaintext. On your own computer, create an SSH local port forward and keep it open:
+
+   ```bash
+   ssh -N -L 8008:127.0.0.1:8008 user@server-ip
+   ```
+
+   Then open `http://127.0.0.1:8008/dashboard` in your local browser and log in; the traffic reaches the server encrypted through SSH. If local port `8008` is already in use, replace the first `8008` with another port and adjust the address accordingly; if Dashboard does not listen on `8008`, replace the second `8008`. If the direct login works, the password is correct and the problem is the Host forwarded by the proxy.
 2. **Compare the headers**: In the browser developer tools Network panel, find the login request `/api/v1/login` and check its `Origin` request header. Compare it with the `Host` the proxy actually forwards to Dashboard; the host name and port must match.
 
 ### Fix the Proxy Configuration
 
 - **Nginx**: In the `location` blocks that proxy Dashboard, use `proxy_set_header Host $http_host;`. `$http_host` is the original Host sent by the browser, including any non-standard port. See [Reverse Proxy Configuration](/en_US/guide/q3.html) for a full example.
-- **Caddy**: `reverse_proxy` forwards Host unchanged by default, so no extra setting is needed. If you set `header_up Host` explicitly, use `{hostport}`, not `{host}` (which has no port), and do not replace it with the upstream address (such as `{upstream_hostport}`).
+- **Caddy**: With an HTTP upstream (such as `to localhost:8008`), `reverse_proxy` forwards Host unchanged by default, so no extra setting is needed. With an HTTPS upstream, Caddy 2.11 and later set Host to the upstream address by default, so you must set `header_up Host {hostport}` explicitly. When setting `header_up Host` explicitly, use `{hostport}`, not `{host}` (which has no port), and do not replace it with the upstream address (such as `{upstream_hostport}`).
 - **Cloudflare Tunnel**: In the Public Hostname HTTP settings, leave **HTTP Host Header** empty; in a configuration file, do not set `originRequest.httpHostHeader`. If you must set it, use the domain the browser actually visits.
 - **Other CDNs, hosting panels, or load balancers**: Set the origin Host (or "origin domain") to the domain the browser actually visits, and include the port when accessing through a non-standard port.
 
-Do not rewrite the `Origin` header to make login pass (such as `proxy_set_header Origin ...` in `location /`, or `header_up Origin ...` in Caddy). That defeats this protection. Make the forwarded Host match the browser address instead.
+Do not rewrite the `Origin` header to make login pass (such as `proxy_set_header Origin ...` in Nginx, or `header_up Origin ...` in Caddy). That defeats this protection. Make the forwarded Host match the browser address instead.
 
 ## OAuth2 Login Failed
 
