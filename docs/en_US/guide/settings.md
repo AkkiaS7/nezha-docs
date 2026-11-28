@@ -164,6 +164,8 @@ The top of the page shows the current state:
 
 After you choose a retention period, the page estimates the cleanup: the records to delete, the space it would free, and the database size after compaction. A cleanup cannot run when there is nothing to delete. The space to free is the history's share of the database scaled by the share of records to delete, plus the space already freed. It is an estimate, usually within 10% of the result and slightly high. When the database is large and the exact count times out, the record count is approximated and marked "(record count is approximate)".
 
+![Database tab after choosing a retention period](/images/database/1_en_US.png)
+
 ::: tip One-time change after upgrading
 The first start of a version with this feature drops a redundant single-column `created_at` index of `service_histories` (a composite index already covers that column), which saves about a fifth of the table's size. The freed space then shows as **Reclaimable by compaction now**; one compaction returns it to the disk.
 :::
@@ -197,6 +199,10 @@ If a compaction while restarting fails, or the dashboard stops during it, the da
 ### Back Up First
 
 Deleted history cannot be recovered. If you may need it later, take a backup in the **Backup** tab first (the confirmation dialog links there as **Go to backups**). A cleanup asks for confirmation twice: first for the retention period, the estimate and the compaction mode, then for the deletion itself.
+
+![First confirmation](/images/database/2_en_US.png)
+
+![Second confirmation](/images/database/3_en_US.png)
 
 Only one database cleanup, compaction or restore runs at a time: starting another meanwhile is refused with "another database cleanup or maintenance is in progress".
 
