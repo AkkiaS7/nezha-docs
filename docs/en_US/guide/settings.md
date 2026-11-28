@@ -196,7 +196,7 @@ A compaction needs temporary disk space: SQLite first writes the compacted datab
 
 If a compaction while restarting fails, or the dashboard stops during it, the dashboard still starts normally, does not try that compaction again, and shows the reason in the result. The deleted records are not affected.
 
-### Periodic Maintenance and "Compaction While Restarting Recommended"
+### Periodic Maintenance and the Compaction Recommendation
 
 The dashboard maintains the database every Sunday at 04:00; calling [`POST /api/v1/maintenance`](/en_US/guide/api.html#database-maintenance-api) does the same. The maintenance does not always compact the whole database; it depends:
 
@@ -206,7 +206,12 @@ The dashboard maintains the database every Sunday at 04:00; calling [`POST /api/
 
 A new installation creates its database in incremental mode. A database from an older version turns to incremental mode at its first compaction (while restarting or now), after which the periodic maintenance never needs to compact the whole database again.
 
-When the database is large, has much free space and is not in incremental mode yet, this page shows **compaction while restarting recommended**. Run a cleanup and choose **Compact while restarting the dashboard**. The cleanup deletes the records older than the chosen retention and, whatever the retention, the history of deleted services (see [What Is Deleted](#what-is-deleted)); the longer the retention, the fewer records it deletes. After the compaction the database is in incremental mode and the notice goes away. If the dashboard cannot restart itself, choose **Compact now** at a quiet time.
+When the database is large, has much free space and is not in incremental mode yet, this page shows **A one-time compaction of the database is recommended**.
+
+- When the notice has a **Compact database** button, click it and choose how to compact in the confirmation: **Compact while restarting the dashboard** (selected by default when the dashboard can restart itself) or **Compact now** (the only choice when it cannot; do it at a quiet time, the dashboard does not respond while compacting). This compacts the database file only and deletes no records.
+- On an older dashboard that cannot compact alone, the notice has no such button, and the only way is a cleanup below with a compaction. The cleanup deletes the records older than the chosen retention and, whatever the retention, the history of deleted services (see [What Is Deleted](#what-is-deleted)).
+
+After a successful compaction the database is in incremental mode and the notice goes away. When there is not enough free disk space, the compaction is skipped and the database is unchanged; the page says "The compaction was skipped: not enough disk space" and the notice stays. Free up space and compact again.
 
 ::: tip Change from earlier versions
 Earlier versions compacted the whole database at every weekly maintenance and every `POST /api/v1/maintenance`. On a large database the admin panel stalled or asked to sign in again meanwhile, and agent reports were lost. The maintenance now works as described above: a large database is no longer compacted by it until it is in incremental mode.

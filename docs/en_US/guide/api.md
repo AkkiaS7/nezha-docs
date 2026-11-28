@@ -569,9 +569,18 @@ Management APIs require login. JWT requests are authorized by user role and reso
 
 ### Database Maintenance API
 
-`POST /api/v1/maintenance` does what the automatic maintenance does every Sunday at 04:00: it returns the free space of the SQLite database to the disk as needed and runs the TSDB maintenance (if enabled). It no longer always compacts the whole database: with little free space it does nothing; a database in incremental mode is reclaimed in small batches; a database not in incremental mode yet whose compaction is expected to take more than 3 seconds is skipped, which is only logged. See [Database settings](/en_US/guide/settings.html#periodic-maintenance-and-compaction-while-restarting-recommended) for the rules. The path and response are unchanged; it returns an error while another database cleanup, compaction or restore is in progress.
+`POST /api/v1/maintenance` does what the automatic maintenance does every Sunday at 04:00: it returns the free space of the SQLite database to the disk as needed and runs the TSDB maintenance (if enabled). It no longer always compacts the whole database: with little free space it does nothing; a database in incremental mode is reclaimed in small batches; a database not in incremental mode yet whose compaction is expected to take more than 3 seconds is skipped, which is only logged. See [Database settings](/en_US/guide/settings.html#periodic-maintenance-and-the-compaction-recommendation) for the rules. The path and response are unchanged; it returns an error while another database cleanup, compaction or restore is in progress.
 
-When `vacuum_recommended` in the response of `GET /api/v1/database/usage` is `true`, the maintenance skips the compaction and a cleanup with "compact while restarting the dashboard" is recommended once. The field is omitted when it is `false`.
+When `vacuum_recommended` in the response of `GET /api/v1/database/usage` is `true`, the maintenance skips the compaction and one compaction while restarting the dashboard is recommended. The field is omitted when it is `false`.
+
+`POST /api/v1/database/compact` compacts the database and deletes no records. `GET /api/v1/database/usage` returns `compact_available: true` when the dashboard has this API; earlier versions omit the field. Send `{"vacuum_mode": "online"}` (compact now; the dashboard does not answer meanwhile) or `{"vacuum_mode": "restart"}` (the dashboard restarts and compacts before it serves; needs `restart_available` to be `true`). The returned job has `compact_only: true`; follow its progress and result in the `job` of `GET /api/v1/database/usage`:
+
+- Compacted: `state` is `"succeeded"`, `vacuum_skipped` is empty and `freed_size` is the bytes freed. Only then is the database turned to incremental mode.
+- Not enough free disk space: nothing is compacted and the database is unchanged. The job also ends with `state: "succeeded"`, but `vacuum_skipped` is `"insufficient_disk"`. Check `vacuum_skipped` before treating the job as a compaction; `state` alone does not tell.
+- Failed: `state` is `"failed"`, with the reason in `error`.
+- With `restart`, the job is `"restarting"` first; after the restart, `job` holds one of the results above.
+
+Only one cleanup, compaction, maintenance or restore runs at a time. Permissions: the calling user must be an administrator; when called with an API Token, the token also needs the `nezha:admin:*` (or `nezha:*`) scope.
 
 Before writing management automation scripts, test them in a staging environment to avoid bulk changes to servers, notifications, tasks, or user configuration.
 
