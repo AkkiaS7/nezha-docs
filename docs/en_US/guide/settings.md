@@ -162,12 +162,12 @@ The top of the page shows the current state:
 - **Service history records** and **Oldest record**.
 - **Free disk space**: the free space of the disk holding the database, shown as unknown when it cannot be determined.
 
-After you choose a retention period, the page estimates the cleanup: the records to delete, the space it would free, and the database size after compaction. A cleanup cannot run when there is nothing to delete. The space to free is the history's share of the database scaled by the share of records to delete, plus the space already freed. It is an estimate, usually within 10% of the result and slightly high. When the database is large and the exact count times out, the record count is approximated and marked "(record count is approximate)".
+After you choose a retention period, the page estimates the cleanup: the records to delete, the space it would free, and the database size after compaction. A cleanup cannot run when there is nothing to delete. The space to free is the history's share of the database scaled by the share of records to delete, plus the space already freed. It is only an estimate: the space actually freed may differ, usually being a little less. When the database is large and the exact count times out, the record count is approximated and marked "(record count is approximate)".
 
 ![Database tab after choosing a retention period](/images/database/1_en_US.png)
 
 ::: tip One-time change after upgrading
-The first start of a version with this feature drops a redundant single-column `created_at` index of `service_histories` (a composite index already covers that column), which saves about a fifth of the table's size. The freed space then shows as **Reclaimable by compaction now**; one compaction returns it to the disk.
+The first start of a version with this feature drops a redundant single-column `created_at` index of `service_histories` (a composite index already covers that column). The freed space then shows as **Reclaimable by compaction now**; one compaction returns it to the disk.
 :::
 
 ### What Is Deleted
